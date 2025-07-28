@@ -75,7 +75,7 @@ if st.button("Generate Visual Story"):
                         # Using Stable Diffusion XL for better quality if available, or v1.5
                         # You can choose a different model version from Replicate if preferred
                         output = replicate.run(
-                            "stability-ai/stable-diffusion-xl:39ed52f2a78e934b3ba6e2a89f5b1c712de7565d76ef6383ef5fd6dcabedcba3", # SDXL model
+                            "runwayml/stable-diffusion-v1-5:c27f689a6bc8ea238bb97825af5e61cf886bb7885b5420310709875f0f3536c1", # Stable Diffusion v1.5 # SDXL model
                             # "stability-ai/stable-diffusion:ac732df83ee47b6b653aea6b56c0f87d63d2dc547d0e74f73bce38bbabfbf079", # SD v1.5 model
                             input={
                                 "prompt": prompt,
