@@ -38,6 +38,10 @@ if not GEMINI_API_KEY:
     )
     st.stop() # Stop the app if API key is missing
 
+# Initialize session state for storing images if not already present
+if 'all_generated_images' not in st.session_state:
+    st.session_state.all_generated_images = []
+
 # Text area for user to input lyrics
 lyrics_input = st.text_area(
     "Enter song lyrics (one line or short phrase per line recommended for best results):",
@@ -65,15 +69,14 @@ if st.button("Generate Visual Story"):
     if not lyrics_input.strip():
         st.warning("Please enter some lyrics to generate a visual story.")
     else:
+        # Clear previous images when new generation starts
+        st.session_state.all_generated_images = [] 
         lyric_lines = [line.strip() for line in lyrics_input.split('\n') if line.strip()]
 
         if not lyric_lines:
             st.warning("No valid lyric lines found after processing. Please ensure each line has content.")
         else:
             st.info(f"Generating {num_images_per_line} image(s) for each of your {len(lyric_lines)} lines. This might take a while!")
-
-            # Prepare a list to hold all images and their captions
-            all_generated_images = []
 
             # Iterate through each lyric line and generate image(s)
             for i, line in enumerate(lyric_lines):
@@ -117,7 +120,7 @@ if st.button("Generate Visual Story"):
                             for j, prediction in enumerate(result['predictions']):
                                 if prediction.get('bytesBase64Encoded'):
                                     image_url = f"data:image/png;base64,{prediction['bytesBase64Encoded']}"
-                                    all_generated_images.append({
+                                    st.session_state.all_generated_images.append({
                                         "url": image_url,
                                         "caption": f"'{line}' (Image {j+1})"
                                     })
@@ -132,17 +135,18 @@ if st.button("Generate Visual Story"):
                         st.error(f"An unexpected error occurred for '{line}': {e}.")
                 time.sleep(1) # Small delay to prevent hitting API rate limits too quickly, if applicable
 
-            if all_generated_images:
-                st.success("Visual story generation complete!")
-                # Display images in columns for better layout
-                num_cols = min(3, len(all_generated_images)) # Max 3 columns
-                cols = st.columns(num_cols)
-                
-                for idx, image_data in enumerate(all_generated_images):
-                    with cols[idx % num_cols]:
-                        st.image(image_data["url"], caption=image_data["caption"], use_column_width=True)
-            else:
-                st.error("No images were generated. Please try a different prompt or check API status.")
+            st.success("Visual story generation complete!")
+            
+# Display previously generated images from session state
+if st.session_state.all_generated_images:
+    st.markdown("---") # Separator for generated images
+    st.subheader("Your Generated Visual Story:")
+    num_cols = min(3, len(st.session_state.all_generated_images)) # Max 3 columns
+    cols = st.columns(num_cols)
+    for idx, image_data in enumerate(st.session_state.all_generated_images):
+        with cols[idx % num_cols]:
+            st.image(image_data["url"], caption=image_data["caption"], use_column_width=True)
+
 
 st.markdown(
     """
@@ -155,6 +159,5 @@ st.markdown(
     displayed directly in your browser. This demonstrates the power of
     **text-to-image generative AI** in visualizing narratives.
     """
-)
 
 
