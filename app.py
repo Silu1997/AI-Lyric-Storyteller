@@ -1,13 +1,21 @@
+
 import streamlit as st
-import replicate
 import os
 import time
+import requests
+import json
 
 # --- Configuration & Setup ---
 # Set page configuration for better aesthetics
 st.set_page_config(page_title="🎵 AI Lyric Storyteller 🖼️", page_icon="📝", layout="centered")
 
-# --- UI Elements ---
+# --- Gemini API Configuration ---
+# IMPORTANT: Never hardcode API keys in production. Use environment variables.
+# You will set this in Hugging Face Space secrets as GEMINI_API_KEY
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+# Using the latest Imagen 3.0 model for image generation
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict"
+
 st.title("🎵 AI Lyric Storyteller 🖼️")
 st.markdown(
     """
@@ -17,7 +25,9 @@ st.markdown(
     """
 )
 
-st.warning("Ensure your `REPLICATE_API_TOKEN` is set as an environment variable before running. Check the console for errors!")
+if not GEMINI_API_KEY:
+    st.error("Error: GEMINI_API_KEY environment variable not set. Please set it in Hugging Face Space secrets.")
+    st.stop() # Stop the app if API key is missing
 
 # Text area for user to input lyrics
 lyrics_input = st.text_area(
@@ -32,83 +42,109 @@ Bringing peace to my soul
     help="Each line or short phrase will be used to generate a separate image. Keep phrases descriptive!"
 )
 
-# Slider for image generation steps (higher = better quality, slower)
-num_inference_steps = st.slider(
-    "Image Detail/Quality (Inference Steps):",
-    min_value=20,
-    max_value=75,
-    value=50,
-    step=5,
-    help="Higher values lead to more detailed images but take longer to generate."
+# Number of images to generate (Gemini API allows batch generation)
+num_images_per_line = st.slider(
+    "Number of images per lyric line (Choose 1 for faster results):",
+    min_value=1,
+    max_value=2, # Limiting to 2 for faster generation and less resource usage
+    value=1,
+    step=1,
+    help="Generating more images per line takes longer and uses more API credits."
 )
 
-# Button to trigger image generation
 if st.button("Generate Visual Story"):
-    # Check if API token is set
-    if not os.getenv("REPLICATE_API_TOKEN"):
-        st.error("Error: REPLICATE_API_TOKEN environment variable not set. Please set it to your Replicate API key.")
-    # Check if lyrics are provided
-    elif not lyrics_input.strip(): # .strip() removes leading/trailing whitespace
+    if not lyrics_input.strip():
         st.warning("Please enter some lyrics to generate a visual story.")
     else:
-        # Split lyrics into individual lines/phrases
         lyric_lines = [line.strip() for line in lyrics_input.split('\n') if line.strip()]
 
         if not lyric_lines:
             st.warning("No valid lyric lines found after processing. Please ensure each line has content.")
         else:
-            st.info(f"Generating {len(lyric_lines)} images for your story. This may take a while...")
+            st.info(f"Generating {num_images_per_line} image(s) for each of your {len(lyric_lines)} lines. This might take a while!")
 
-            # Container for generated images
-            image_columns = st.columns(min(3, len(lyric_lines))) # Display up to 3 columns, adjust based on number of lines
-            current_col_idx = 0
+            # Prepare a list to hold all images and their captions
+            all_generated_images = []
 
-            # Iterate through each lyric line and generate an image
+            # Iterate through each lyric line and generate image(s)
             for i, line in enumerate(lyric_lines):
                 # Construct the prompt for the AI model
                 # Enhance the prompt to guide the AI for better results
-                prompt = f"digital art, vibrant, highly detailed, cinematic, --ar 16:9, a visual scene representing the mood and imagery of: '{line}'"
+                # Add instructions for the model using natural language
+                prompt_text = f"digital art, cinematic, vibrant, highly detailed, a visual scene representing the mood and imagery of: '{line}'"
 
-                with st.spinner(f"Generating image for: '{line}'..."):
+                with st.spinner(f"Composing image(s) for: '{line}'..."):
                     try:
-                        # Call the Replicate API for text-to-image generation
-                        # Using Stable Diffusion XL for better quality if available, or v1.5
-                        # You can choose a different model version from Replicate if preferred
-                        output = replicate.run(
-                            "runwayml/stable-diffusion-v1-5:c27f689a6bc8ea238bb97825af5e61cf886bb7885b5420310709875f0f3536c1", # Stable Diffusion v1.5 # SDXL model
-                            # "stability-ai/stable-diffusion:ac732df83ee47b6b653aea6b56c0f87d63d2dc547d0e74f73bce38bbabfbf079", # SD v1.5 model
-                            input={
-                                "prompt": prompt,
-                                "num_inference_steps": num_inference_steps,
-                                "width": 1024, # SDXL default, adjust for other models if needed
-                                "height": 768, # SDXL default
-                                "guidance_scale": 7.5 # Controls adherence to prompt vs creativity
+                        # --- Call the Gemini API for Image Generation ---
+                        headers = {
+                            "Content-Type": "application/json"
+                        }
+                        payload = {
+                            "instances": {
+                                "prompt": prompt_text
+                            },
+                            "parameters": {
+                                "sampleCount": num_images_per_line # How many images to generate
                             }
-                        )
+                        }
 
-                        if output and len(output) > 0:
-                            # Display the image in a column
-                            with image_columns[current_col_idx]:
-                                st.image(output[0], caption=f"'{line}'", use_column_width=True)
-                            current_col_idx = (current_col_idx + 1) % len(image_columns) # Cycle through columns
+                        # Implement exponential backoff for API calls
+                        max_retries = 5
+                        for attempt in range(max_retries):
+                            try:
+                                response = requests.post(f"{GEMINI_API_URL}?key={GEMINI_API_KEY}", headers=headers, json=payload)
+                                response.raise_for_status() # Raise an exception for HTTP errors (4xx or 5xx)
+                                result = response.json()
+                                break # If successful, break retry loop
+                            except requests.exceptions.RequestException as e:
+                                if attempt < max_retries - 1:
+                                    sleep_time = 2 ** attempt # Exponential backoff
+                                    st.warning(f"API call failed, retrying in {sleep_time} seconds (attempt {attempt + 1}/{max_retries})... Error: {e}")
+                                    time.sleep(sleep_time)
+                                else:
+                                    raise # Re-raise if all retries fail
+
+                        if result and result.get('predictions'):
+                            for j, prediction in enumerate(result['predictions']):
+                                if prediction.get('bytesBase64Encoded'):
+                                    image_url = f"data:image/png;base64,{prediction['bytesBase64Encoded']}"
+                                    all_generated_images.append({
+                                        "url": image_url,
+                                        "caption": f"'{line}' (Image {j+1})"
+                                    })
+                                else:
+                                    st.error(f"Failed to retrieve image data for '{line}' (Image {j+1}).")
                         else:
-                            st.error(f"Failed to generate image for: '{line}'. No output received from AI.")
+                            st.error(f"Failed to generate image for: '{line}'. Unexpected AI response.")
 
-                    except replicate.exceptions.ReplicateException as e:
-                        st.error(f"Replicate API Error for '{line}': {e}. Please check your API key, prompt, or Replicate usage limits.")
+                    except requests.exceptions.RequestException as e:
+                        st.error(f"Gemini API Error for '{line}': {e}. Please check your API key, network, or Google Cloud quotas.")
                     except Exception as e:
                         st.error(f"An unexpected error occurred for '{line}': {e}.")
                 time.sleep(1) # Small delay to prevent hitting API rate limits too quickly, if applicable
 
-            st.success("Visual story generation complete!")
-            st.markdown(
-                """
-                ---
-                **About this Story:**
-                Each image above was uniquely generated by a powerful Text-to-Image AI model (like Stable Diffusion)
-                based on your provided lyrical lines. This demonstrates **Generative AI's ability to interpret
-                and visualize textual narratives sequentially**, creating a unique visual accompaniment to
-                creative writing.
-                """
-            )
+            if all_generated_images:
+                st.success("Visual story generation complete!")
+                # Display images in columns for better layout
+                num_cols = min(3, len(all_generated_images)) # Max 3 columns
+                cols = st.columns(num_cols)
+                
+                for idx, image_data in enumerate(all_generated_images):
+                    with cols[idx % num_cols]:
+                        st.image(image_data["url"], caption=image_data["caption"], use_column_width=True)
+            else:
+                st.error("No images were generated. Please try a different prompt or check API status.")
+
+st.markdown(
+    """
+    ---
+    **How it works:**
+    This application utilizes Google's **Imagen 3.0** model via the Gemini API
+    to synthesize images from your text description. When you enter a prompt,
+    it's sent to the Gemini API, which runs the powerful AI model on
+    Google's infrastructure. The generated image data is then returned and
+    displayed directly in your browser. This demonstrates the power of
+    **text-to-image generative AI** in visualizing narratives.
+    """
+)
 
