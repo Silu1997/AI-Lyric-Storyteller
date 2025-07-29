@@ -27,6 +27,15 @@ st.markdown(
 
 if not GEMINI_API_KEY:
     st.error("Error: GEMINI_API_KEY environment variable not set. Please set it in Hugging Face Space secrets.")
+    st.markdown(
+        """
+        ### API Key Troubleshooting Steps:
+        1.  **Generate a new Gemini API Key:** Go to [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) and create a fresh API key for a new project.
+        2.  **Enable Generative Language API:** In your Google Cloud project (the one associated with your API key), ensure the "Generative Language API" is explicitly enabled. You can find this in the Google Cloud Console under "APIs & Services" -> "Enabled APIs & services".
+        3.  **Link a Billing Account:** Even for free tier usage, some advanced Google APIs require a billing account to be linked to the project in Google Cloud. Make sure this is set up.
+        4.  **Update Secret in Hugging Face:** Go to your Hugging Face Space settings, delete the old `GEMINI_API_KEY` secret, and add the new one.
+        """
+    )
     st.stop() # Stop the app if API key is missing
 
 # Text area for user to input lyrics
@@ -147,4 +156,5 @@ st.markdown(
     **text-to-image generative AI** in visualizing narratives.
     """
 )
+
 
