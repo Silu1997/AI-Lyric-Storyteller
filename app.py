@@ -148,7 +148,7 @@ if st.session_state.all_generated_images:
             st.image(image_data["url"], caption=image_data["caption"], use_column_width=True)
 
 
-st.markdown(
+st.markdown()
     """
     ---
     **How it works:**
